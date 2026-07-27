@@ -19,7 +19,7 @@ ConnectDB();
 app.use(cors({
     origin: [
         "http://localhost:5173",
-        "https://your-project.vercel.app"
+        "https://ai-git-hub-project-analyzer-beta.vercel.app"
     ],
     credentials: true,
 }));

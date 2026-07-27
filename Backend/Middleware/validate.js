@@ -7,6 +7,7 @@ const validate=(schema) => {
 
         if(!result.success){
                 console.log("Validation Failed");
+                console.log(result.error.issues);
             return res.status(400).json({
                 success:false,
                 errors:result.error.issues

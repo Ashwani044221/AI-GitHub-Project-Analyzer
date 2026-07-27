@@ -51,12 +51,12 @@ route.post("/login", async(req,res) => {
         const playload={id:user.id, email:user.email};
         const token=jwt.sign(playload,process.env.JWT_KEY,{expiresIn : "7d"});
 
-        res.cookie("jwtcookie",token,{
-            httpOnly: true,
-            secure: false, // Set to true in production with HTTPS
-            sameSite: "lax",
-            maxAge: 24 * 60 * 60 * 1000
-        })
+        res.cookie("jwtcookie", token, {
+          httpOnly: true,
+          secure: true,
+          sameSite: "None",
+          maxAge: 24 * 60 * 60 * 1000,
+        });
 
         res.json({ message: "Login successful",token, user: {
           id: user._id,

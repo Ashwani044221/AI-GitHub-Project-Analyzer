@@ -36,7 +36,9 @@ route.post("/",async(req,res) => {
         const token=jwt.sign({id:user._id},process.env.JWT_KEY);
 
         res.cookie("jwtcookie", token, {
-          httpOnly: true
+          httpOnly: true,
+          secure: true,
+          sameSite: "none"
         });
 
         res.json({

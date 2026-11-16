@@ -1,5 +1,5 @@
 import express, { response } from "express";
-import axios from 'axios';
+import axios from "axios";
 import Projectanalysis from "../model/projectanalysis.js";
 import authMiddleware from "../Middleware/authmiddleware.js";
 import AIData from "../model/aidata.js";
@@ -7,84 +7,90 @@ import backgroundAI from "../AI Services/backgroundAI.js";
 import projvalidate from "../Middleware/projvalid.js";
 import projectschema from "../validators/urlvalidation.js";
 
-const route =express.Router();
+const route = express.Router();
 
-//create 
-route.post("/project",projvalidate(projectschema),authMiddleware, async(req,res) => {
-  try{
-    // 1. input from frontend https://github.com/ 3.split facebook / 4.split react
-    const {projecturl}=req.body;
+//create
+route.post(
+  "/project",
+  projvalidate(projectschema),
+  authMiddleware,
+  async (req, res) => {
+    try {
+      // 1. input from frontend https://github.com/ 3.split facebook / 4.split react
+      const { projecturl } = req.body;
 
-    //2.split
-    const parts=projecturl.split("/");
+      //2.split
+      const parts = projecturl.split("/");
 
-    //3.owner
-    const owner=parts[3];
+      //3.owner
+      const owner = parts[3];
 
-    //4.repo
-    const repo=parts[4];
+      //4.repo
+      const repo = parts[4];
 
-    //5. Github api call
-    const response=await axios.get(`https://api.github.com/repos/${owner}/${repo}`);
-    
-    //6.post to database
-    let projectDetails = await Projectanalysis.findOne({
-      owner: req.user.id,
-      projecturl
-    });
+      //5. Github api call
+      const response = await axios.get(
+        `https://api.github.com/repos/${owner}/${repo}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        },
+      );
 
-    if (!projectDetails) {
-
-      projectDetails = new Projectanalysis({
-
+      //6.post to database
+      let projectDetails = await Projectanalysis.findOne({
         owner: req.user.id,
-
         projecturl,
-
-        name: response.data.name,
-
-        description: response.data.description,
-
-        stars: response.data.stargazers_count,
-
-        forks: response.data.forks_count,
-
-        language: response.data.language,
-
-        aiStatus: "processing"
-
       });
 
-      await projectDetails.save();
-    }
+      if (!projectDetails) {
+        projectDetails = new Projectanalysis({
+          owner: req.user.id,
 
-    const existAnalysis = await AIData.findOne({
-      projectId: projectDetails._id
-    });
+          projecturl,
 
-    if (existAnalysis) {
+          name: response.data.name,
 
-      return res.status(200).json({
+          description: response.data.description,
+
+          stars: response.data.stargazers_count,
+
+          forks: response.data.forks_count,
+
+          language: response.data.language,
+
+          aiStatus: "processing",
+        });
+
+        await projectDetails.save();
+      }
+
+      const existAnalysis = await AIData.findOne({
+        projectId: projectDetails._id,
+      });
+
+      if (existAnalysis) {
+        return res.status(200).json({
+          success: true,
+          project: projectDetails,
+          analysis: existAnalysis,
+          message: "Already analyzed",
+        });
+      }
+
+      res.status(200).json({
         success: true,
+
         project: projectDetails,
-        analysis: existAnalysis,
-        message: "Already analyzed"
+
+        message: "Project Added Successfully",
       });
 
-    }
-
-    res.status(200).json({
-
-      success: true,
-
-      project: projectDetails,
-
-      message: "Project Added Successfully"
-
-    });
-
-    //7.gemini api and promt
-   const prompt = `
+      //7.gemini api and promt
+      const prompt = `
                     Analyze this GitHub project.
                     
                     Return ONLY valid JSON.
@@ -199,94 +205,86 @@ route.post("/project",projvalidate(projectschema),authMiddleware, async(req,res)
                     Forks: ${response.data.forks_count}
                     `;
 
-   backgroundAI(projectDetails, prompt).catch((err) => {
-      console.error("Background AI Error:", err.message);
-   });
+      backgroundAI(projectDetails, prompt).catch((err) => {
+        console.error("Background AI Error:", err.message);
+      });
+    } catch (err) {
+      console.log(err);
 
-  }catch(err){
+      return res.status(500).json({
+        success: false,
+        message: "Internal Server Error",
+      });
+    }
+  },
+);
 
-    console.log(err);
-
-    return res.status(500).json({
-      success:false,
-      message:"Internal Server Error"
-    });
-  }
-});
-
-// read 
-route.get("/projects",authMiddleware, async (req, res) => {
+// read
+route.get("/projects", authMiddleware, async (req, res) => {
   try {
-
     const projects = await Projectanalysis.find({
-      owner: req.user.id
+      owner: req.user.id,
     });
 
     res.status(200).json({
       success: true,
-      projects
+      projects,
     });
-
   } catch (err) {
-
     res.status(500).json({
       success: false,
-      message: err.message
+      message: err.message,
     });
-
   }
 });
 
-route.get("/project/:projectId",authMiddleware, async(req,res) => {
-    try{
-      const {projectId} =req.params;
-
-      const project = await Projectanalysis.findOne({
-       _id: projectId,
-       owner: req.user.id
-      });
-
-      if (!project) {
-        return res.status(404).json({
-        success: false,
-        message: "Project not found"
-        });
-      }
-
-      const AIresponse= await AIData.findOne({projectId});
-
-      res.json({success:true, analysis: AIresponse , project});
-    }catch(err){
-
-      res.status(500).json({error:err.message});
-
-    }
-});
-
-route.post("/project/:projectId/retry", authMiddleware, async (req, res) => {
+route.get("/project/:projectId", authMiddleware, async (req, res) => {
   try {
-
     const { projectId } = req.params;
 
     const project = await Projectanalysis.findOne({
       _id: projectId,
-      owner: req.user.id
+      owner: req.user.id,
     });
 
     if (!project) {
       return res.status(404).json({
         success: false,
-        message: "Project not found"
+        message: "Project not found",
+      });
+    }
+
+    const AIresponse = await AIData.findOne({ projectId });
+
+    res.json({ success: true, analysis: AIresponse, project });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+route.post("/project/:projectId/retry", authMiddleware, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    const project = await Projectanalysis.findOne({
+      _id: projectId,
+      owner: req.user.id,
+    });
+
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found",
       });
     }
 
     const existAI = await AIData.findOne({
-      projectId
+      projectId,
     });
 
     if (existAI) {
       await AIData.deleteOne({
-        projectId
+        projectId,
       });
     }
 
@@ -414,39 +412,39 @@ route.post("/project/:projectId/retry", authMiddleware, async (req, res) => {
 
     res.json({
       success: true,
-      message: "AI Analysis Started Again"
+      message: "AI Analysis Started Again",
     });
-
   } catch (err) {
-
     console.log(err);
 
     res.status(500).json({
       success: false,
-      message: "Internal Server Error"
+      message: "Internal Server Error",
     });
-
   }
 });
 
 //Delete
-route.delete("/:id",authMiddleware ,async(req,res) => {
-    try{
-      const deleteproject=await Projectanalysis.findOneAndDelete({_id:req.params.id,owner: req.user.id});
+route.delete("/:id", authMiddleware, async (req, res) => {
+  try {
+    const deleteproject = await Projectanalysis.findOneAndDelete({
+      _id: req.params.id,
+      owner: req.user.id,
+    });
 
-      if(!deleteproject){
-        return res.status(404).json({message:"Project Can Not Found"});
-      }
-
-      await AIData.deleteOne({
-         projectId: req.params.id
-      });
-
-      res.json({message:"Project Delete Successfully"});
-    }catch(err){
-      console.error(err);
-      res.status(500).json({ message: "Error deleting project" });
+    if (!deleteproject) {
+      return res.status(404).json({ message: "Project Can Not Found" });
     }
+
+    await AIData.deleteOne({
+      projectId: req.params.id,
+    });
+
+    res.json({ message: "Project Delete Successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error deleting project" });
+  }
 });
 
 export default route;

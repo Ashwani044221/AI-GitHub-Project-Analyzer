@@ -29,16 +29,61 @@ route.post(
       const repo = parts[4];
 
       //5. Github api call
-      const response = await axios.get(
-        `https://api.github.com/repos/${owner}/${repo}`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-            Accept: "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
+      let response;
+
+      try {
+        response = await axios.get(
+          `https://api.github.com/repos/${owner}/${repo}`,
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
           },
-        },
-      );
+        );
+      } catch (error) {
+        const status = error.response?.status;
+
+        if (status === 404) {
+          return res.status(404).json({
+            success: false,
+            message:
+              "Repository not found or inaccessible. Please check the URL and make sure the repository is public.",
+          });
+        }
+
+        if (status === 403) {
+          const remaining = error.response?.headers?.["x-ratelimit-remaining"];
+
+          if (remaining === "0") {
+            return res.status(429).json({
+              success: false,
+              message: "GitHub API limit exceeded. Please try again later.",
+            });
+          }
+
+          return res.status(403).json({
+            success: false,
+            message:
+              "Unable to access this repository. Please check repository permissions.",
+          });
+        }
+
+        if (status === 401) {
+          console.error("GitHub authentication configuration error");
+
+          return res.status(500).json({
+            success: false,
+            message: "Repository service is temporarily unavailable.",
+          });
+        }
+
+        return res.status(502).json({
+          success: false,
+          message: "Unable to connect to GitHub. Please try again.",
+        });
+      }
 
       //6.post to database
       let projectDetails = await Projectanalysis.findOne({
@@ -213,7 +258,7 @@ route.post(
 
       return res.status(500).json({
         success: false,
-        message: "Internal Server Error",
+        message: "Something went wrong. Please try again later.",
       });
     }
   },
